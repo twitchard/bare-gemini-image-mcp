@@ -2,7 +2,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
-import { GoogleGenAI, Modality } from '@google/genai';
+import { GoogleGenAI, Modality, PartUnion } from '@google/genai';
 
 import * as fs from 'fs/promises';
 import * as os from 'os';
@@ -28,13 +28,27 @@ const ai = new GoogleGenAI({
 
 const handle = async ({
   prompt,
+  imagePrompt,
 }: {
   prompt: string,
+  imagePrompt?: { 
+    base64: string
+    mimeType: string,
+  }
 }): Promise<CallToolResult> => {
   try {
+    const contents: Array<PartUnion> = []
+    if (imagePrompt) {
+      contents.push({
+        inlineData: {
+          "data": Buffer.from(imagePrompt.base64, 'base64').toString('binary'),
+          mimeType: imagePrompt.mimeType,
+        },
+      })
+    }
     const response = await ai.models.generateContent({
       model: "gemini-2.0-flash-exp-image-generation",
-      contents: prompt,
+      contents: [prompt],
       config: {
         responseModalities: [Modality.TEXT, Modality.IMAGE],
       },
@@ -63,10 +77,11 @@ const handle = async ({
         fileInfos.push({path: writtenPath, size: imageData.length / 1024 + " KB"});
 
         const mimeType = part?.inlineData?.mimeType
-        const PADDING = 1024
 
+        // const PADDING = 1024
         // Claude desktop doesn't support images > 1MB
-        if (mimeType && imageData.length < 1 * 1024 * 1024 - PADDING) {
+        //if (mimeType && imageData.length < 1 * 1024 * 1024 - PADDING) {
+        if (mimeType) {
           fileDatas.push({
             data: imageData,
             mimeType: mimeType
@@ -105,6 +120,10 @@ async function main(): Promise<void> {
     'generate_image',
     {
       prompt: z.string().describe('Detailed text description of the image to generate'),
+      imagePrompt: z.object({
+        base64: z.string().describe('Base64 encoded image data'),
+        mimeType: z.string().describe('MIME type of the image'),
+      }).optional().describe('Optional image prompt to guide the generation'),
     },
     handle
   );
